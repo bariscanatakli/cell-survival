@@ -8,6 +8,7 @@ from .food import Food
 from .hazard import Hazard
 from .species import SpeciesType, Species
 from .challenges import EnvironmentalChallenge, DisasterType
+from .challenges import SeasonType
 
 
 def calculate_distance(point1, point2):
@@ -33,6 +34,9 @@ class World:
             "GATHERER": 0.2,
             "SCAVENGER": 0.2,
         }
+        
+        # Add food generation rate parameter
+        self.food_generation_rate = 0.05  # 5% chance to generate food each step
 
         self.device = device or torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print(f"World simulation using device: {self.device}")
@@ -50,7 +54,7 @@ class World:
         # Grids for exploration and resource tracking
         self.exploration_bonus_grid = np.zeros((width, height))
         self.resource_depletion_grid = np.zeros((width, height))
-        self.state_size = 16  # Expanded state size including environmental factors
+        self.state_size = 24  # Update from 16 to 24 dimensions to match expected input
         self.action_size = 6  # e.g., up, down, left, right, attack, reproduce
         self.day_cycle = 0
         self.max_day_cycle = 100
@@ -144,7 +148,9 @@ class World:
             dist = self.distance(cell.position, other.position)
             if Species.can_eat(other.species.type, cell.species.type):
                 predator_dist = min(predator_dist, dist)
-            # Add prey distance logic if applicable here
+            elif Species.can_eat(cell.species.type, other.species.type):
+                prey_dist = min(prey_dist, dist)
+
         state[10] = predator_dist / (self.width * 0.1) if predator_dist != float("inf") else 1.0
         state[11] = prey_dist / (self.width * 0.1) if prey_dist != float("inf") else 1.0
 
@@ -158,11 +164,34 @@ class World:
         state[13] = len(active_disasters) / 4.0
         state[14] = self.day_cycle / self.max_day_cycle
         state[15] = self.competition_factor
+        
+        # Add additional state dimensions for compatibility with existing models
+        state[16] = cell.species.energy_efficiency / 2.0  # Normalize around 1.0
+        state[17] = cell.species.radiation_resistance
+        state[18] = cell.species.immune_strength
+        state[19] = cell.species.cold_resistance
+        
+        # Season encoding as one-hot (positions 20-23)
+        season_idx = list(SeasonType).index(self.challenges.current_season)
+        state[20 + season_idx] = 1.0
 
         return state.reshape(1, -1)
 
+    def get_cell_state(self, cell_index):
+        """Get state representation for a cell specified by its index."""
+        if 0 <= cell_index < len(self.cells):
+            return self.get_state(self.cells[cell_index])
+        else:
+            # Return a default state if the index is out of bounds
+            return np.zeros((1, self.state_size))
+
     def _step(self, cell_index, action):
         """Perform a simulation step for a single cell."""
+        # Add index bounds checking to prevent out-of-range errors
+        if cell_index >= len(self.cells):
+            print(f"Warning: Cell index {cell_index} out of range. Current cells: {len(self.cells)}")
+            return np.zeros((1, self.state_size)), 0, True
+        
         cell = self.cells[cell_index]
         prev_position = cell.position
         reward = 0
@@ -196,6 +225,12 @@ class World:
 
         # Update stagnation tracking
         cell_id = id(cell)
+        
+        # Initialize tracking data for this cell if it doesn't exist
+        if cell_id not in self.cell_position_history:
+            self.cell_position_history[cell_id] = []
+            self.last_position_update[cell_id] = 0
+            
         if prev_position != cell.position:
             self.cell_position_history[cell_id].append(cell.position)
             if len(self.cell_position_history[cell_id]) > 10:
@@ -233,27 +268,56 @@ class World:
         return self.get_state(cell), reward, done
 
     def step(self, data, action=None):
-        """
-        Updated step method.
-        If data is a dict (batch of actions), iterate over each (cell_index, action).
-        Otherwise, treat 'data' as a single cell index and 'action' as its action.
-        Returns (next_states, rewards, dones, info) for batch, or (next_state, reward, done, info) for single step.
-        """
+        """Process one step in the environment."""
         if isinstance(data, dict):
-            next_states = {}
-            rewards = {}
-            dones = {}
-            for cell_index, act in data.items():
-                state, rew, done = self._step(cell_index, act)
-                next_states[cell_index] = state
-                rewards[cell_index] = rew
-                dones[cell_index] = done
-            info = {}  # Add any additional info if needed
-            return next_states, rewards, dones, info
-        else:
-            next_state, reward, done = self._step(data, action)
-            info = {}  # Add any additional info if needed
+            # Data contains actions for multiple cells
+            actions = data
+            state = {}
+            reward = {}
+            done = {}
+            info = {}
+            
+            # Make a copy of cell indices to avoid problems when the cells list changes
+            cell_indices = list(range(len(self.cells)))
+            
+            for cell_index, act in actions.items():
+                # Safety check to prevent index errors
+                if cell_index < 0 or cell_index >= len(self.cells):
+                    print(f"Warning: Cell index {cell_index} out of range. Current cells: {len(self.cells)}")
+                    continue
+                    
+                state[cell_index], rew, d = self._step(cell_index, act)
+                reward[cell_index] = rew
+                done[cell_index] = d
+                info[cell_index] = {}
+                
+                # If the cell died, it may have been removed
+                # The indices would be shifted, so we need to adjust
+                if d:
+                    for j in range(cell_index+1, len(cell_indices)):
+                        cell_indices[j] -= 1
+            
+            # Add new food at a regular interval
+            if random.random() < self.food_generation_rate * self.challenges.get_food_multiplier():
+                self.add_new_food()
+            
+            self.manage_decay()
+            self.day_cycle += 1
+            
+            # Update challenges (seasons, disasters, etc.)
+            self.challenges.update(self.day_cycle, self.episode)
+
+            if self.day_cycle >= self.max_day_cycle:
+                done = {i: True for i in range(len(self.cells))}
+
+            next_state = state
             return next_state, reward, done, info
+        else:
+            # Single cell case - kept for backward compatibility
+            cell_index = data
+            action = action
+            return self._step(cell_index, action)
+
     def process_interactions(self, cell):
         """Process cell's interactions with food and hazards."""
         consumed_food = []

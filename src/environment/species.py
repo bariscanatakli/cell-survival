@@ -7,9 +7,33 @@ class SpeciesType(Enum):
     PREY = auto()      # Yellow - mid-tier predator, eats gatherers
     GATHERER = auto()  # Green - herbivore, eats only plants
     SCAVENGER = auto() # Purple - bottom feeder, eats decaying matter
+    
+    @classmethod
+    def from_index(cls, index):
+        """Safely convert an index to a SpeciesType"""
+        if 0 <= index < len(cls):
+            return list(cls)[index]
+        else:
+            raise ValueError(f"Invalid species index: {index}")
+    
+    @classmethod
+    def to_index(cls, species_type):
+        """Convert a SpeciesType to an index"""
+        if not isinstance(species_type, cls):
+            raise ValueError(f"Expected SpeciesType, got {type(species_type)}")
+        return list(cls).index(species_type)
+        
+    @classmethod
+    def count(cls):
+        """Return the number of species types"""
+        return len(list(cls))
 
 class Species:
     def __init__(self, species_type, **kwargs):
+        # Validate species_type
+        if not isinstance(species_type, SpeciesType):
+            raise ValueError(f"Expected SpeciesType, got {type(species_type)}")
+            
         self.type = species_type
         
         # Base attributes
@@ -78,9 +102,20 @@ class Species:
         self.radiation_resistance = max(0, min(1, self.radiation_resistance + random.uniform(-0.05, 0.05)))
         self.cold_resistance = max(0, min(1, self.cold_resistance + random.uniform(-0.05, 0.05)))
         
+    def __str__(self):
+        """String representation for debugging"""
+        return f"Species({self.type.name}, energy={self.max_energy:.1f}, attack={self.attack_power:.1f}, speed={self.speed:.1f})"
+    
+    def __repr__(self):
+        return self.__str__()
+        
     @staticmethod
     def can_eat(predator_type, prey_type):
         """Define predator-prey relationships"""
+        # Validate inputs
+        if not isinstance(predator_type, SpeciesType) or not isinstance(prey_type, SpeciesType):
+            return False
+            
         relationships = {
             SpeciesType.PREDATOR: [SpeciesType.PREY, SpeciesType.GATHERER],
             SpeciesType.PREY: [SpeciesType.GATHERER],  # Prey can eat gatherers
@@ -133,3 +168,48 @@ class Species:
             mutated.attack_power = max(1, mutated.attack_power)
             
         return mutated
+
+    @staticmethod
+    def get_species_properties(index=None, species_type=None):
+        """Safely get species properties by either index or species_type"""
+        if index is not None:
+            try:
+                species_type = SpeciesType.from_index(index)
+            except ValueError as e:
+                # Return default values if index is invalid
+                return {
+                    "type": None,
+                    "color": (255, 255, 255),
+                    "name": f"Unknown-{index}"
+                }
+        
+        if species_type == SpeciesType.PREDATOR:
+            return {
+                "type": species_type,
+                "color": (255, 50, 50),
+                "name": "Predator"
+            }
+        elif species_type == SpeciesType.PREY:
+            return {
+                "type": species_type,
+                "color": (255, 255, 50),
+                "name": "Prey"
+            }
+        elif species_type == SpeciesType.GATHERER:
+            return {
+                "type": species_type,
+                "color": (50, 255, 50),
+                "name": "Gatherer"
+            }
+        elif species_type == SpeciesType.SCAVENGER:
+            return {
+                "type": species_type,
+                "color": (180, 50, 255),
+                "name": "Scavenger"
+            }
+        else:
+            return {
+                "type": None,
+                "color": (255, 255, 255),
+                "name": "Unknown"
+            }

@@ -219,3 +219,37 @@ class Cell:
             energy_ratio = max(0.2, min(1.0, self.energy_level / self.species.max_energy))
             # We don't modify species.speed directly, but could apply temporary speed adjustments
             # or track an effective_speed attribute if needed
+    
+    def clone(self):
+        """
+        Create an exact copy of this cell without mutations or energy cost
+        
+        Returns:
+            Cell: A new Cell instance with identical properties
+        """
+        # Create new cell with same position and species
+        cloned_cell = Cell(self.position, self.species.type, self.energy_level)
+        
+        # Copy over all attributes
+        cloned_cell.age = self.age
+        cloned_cell.performance_score = self.performance_score
+        cloned_cell.last_action = self.last_action
+        cloned_cell.food_consumed = self.food_consumed
+        cloned_cell.reproduction_penalty = self.reproduction_penalty
+        cloned_cell.fitness_score = self.fitness_score
+        
+        # Copy resistances
+        cloned_cell.cold_resistance = self.cold_resistance
+        cloned_cell.drought_resistance = self.drought_resistance
+        cloned_cell.disease_resistance = self.disease_resistance
+        cloned_cell.radiation_resistance = self.radiation_resistance
+        
+        # Copy tracking variables
+        cloned_cell.stagnation_time = self.stagnation_time
+        cloned_cell.last_movement_direction = self.last_movement_direction
+        cloned_cell.repetitive_movement_count = self.repetitive_movement_count
+        cloned_cell.energy_depletion_rate = self.energy_depletion_rate
+        cloned_cell.last_food_time = self.last_food_time
+        cloned_cell.starvation_threshold = self.starvation_threshold
+        
+        return cloned_cell

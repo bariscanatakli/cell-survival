@@ -139,3 +139,57 @@ class EvolutionManager:
             species.radiation_resistance = 0
             
         return species
+
+    def calculate_adaptation_score(self, cells):
+        """
+        Calculate the overall adaptation score of the population
+        
+        Args:
+            cells: List of all cells in the world
+            
+        Returns:
+            float: Average adaptation score across all species
+        """
+        if not cells:
+            return 0.0
+            
+        # Group cells by species type
+        species_groups = {}
+        for cell in cells:
+            if cell.species.type not in species_groups:
+                species_groups[cell.species.type] = []
+            species_groups[cell.species.type].append(cell)
+        
+        # Calculate average adaptation score across all species
+        total_score = 0.0
+        count = 0
+        
+        for species_type, group in species_groups.items():
+            if species_type in self.adaptation_score and group:
+                total_score += self.adaptation_score[species_type]
+                count += 1
+        
+        return total_score / max(1, count)  # Avoid division by zero
+    
+    def calculate_average_mutation_rate(self, cells):
+        """
+        Calculate the average mutation rate across all cells
+        
+        Args:
+            cells: List of all cells in the world
+            
+        Returns:
+            float: Average mutation rate across all species
+        """
+        if not cells:
+            return self.mutation_rate  # Return base rate if no cells
+            
+        # Group cells by species type
+        species_types = set(cell.species.type for cell in cells)
+        
+        # Calculate average mutation rate
+        total_rate = 0.0
+        for species_type in species_types:
+            total_rate += self.get_mutation_rate(species_type)
+        
+        return total_rate / max(1, len(species_types))  # Avoid division by zero
